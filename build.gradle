@@ -92,6 +92,7 @@ dependencies {
     implementation 'androidx.emoji2:emoji2-views:1.5.0'
     implementation "org.jetbrains.kotlin:kotlin-stdlib:2.0.0"
     implementation "org.jetbrains.kotlinx:kotlinx-coroutines-core:1.9.0"
+    testImplementation "org.jetbrains.kotlin:kotlin-test:2.0.0"
     implementation "org.jetbrains.kotlinx:kotlinx-coroutines-android:1.9.0"
     implementation 'org.jetbrains.kotlinx:kotlinx-serialization-json:1.6.2'
     implementation 'androidx.preference:preference-ktx:1.2.1'

@@ -27,6 +27,19 @@ import java.util.LinkedList
 import java.util.Queue
 import kotlin.math.abs
 import kotlin.math.absoluteValue
+import com.yuyan.imemodule.keyboard.gesture.CursorSwipeController
+import com.yuyan.imemodule.keyboard.gesture.DeleteSwipeRecognizer
+import com.yuyan.imemodule.keyboard.gesture.DiscreteGestureDispatcher
+import com.yuyan.imemodule.keyboard.gesture.EnglishEditSwipeRecognizer
+import com.yuyan.imemodule.keyboard.gesture.GestureAction
+import com.yuyan.imemodule.keyboard.gesture.GestureActionExecutor
+import com.yuyan.imemodule.keyboard.gesture.GestureContext
+import com.yuyan.imemodule.keyboard.gesture.GestureDispatcher
+import com.yuyan.imemodule.keyboard.gesture.GestureLifecycle
+import com.yuyan.imemodule.keyboard.gesture.KeySymbolUpRecognizer
+import com.yuyan.imemodule.keyboard.gesture.LX17EditSwipeRecognizer
+import com.yuyan.imemodule.keyboard.gesture.LX17SpaceUpRecognizer
+import com.yuyan.imemodule.keyboard.gesture.TouchSession
 
 /**
  * 键盘根布局
@@ -41,6 +54,19 @@ open class BaseKeyboardView(mContext: Context?) : View(mContext) {
     protected var mLongPressKey = false
     private var mAbortKey = false
     private var gestureHandled = false
+    private var touchSession: TouchSession? = null
+    private val gestureDispatcher = GestureDispatcher(
+        discrete = DiscreteGestureDispatcher(
+            listOf(DeleteSwipeRecognizer(), LX17SpaceUpRecognizer(), LX17EditSwipeRecognizer(), EnglishEditSwipeRecognizer(), KeySymbolUpRecognizer())
+        ),
+        cursor = CursorSwipeController(
+            leftKeys = KeyboardData.lx17CursorSwipeLeftKeys,
+            rightKeys = KeyboardData.lx17CursorSwipeRightKeys,
+            stepPx = { maxOf(AppPrefs.getInstance().keyboardSetting.spaceSwipeMoveCursorSpeed.getValue().toFloat(), LX17_CURSOR_STEP_PX) },
+            emit = { action -> executeGestureAction(action) },
+        ),
+        execute = GestureActionExecutor { executeGestureAction(it) },
+    )
     private var mHandler: Handler? = null
     protected var mDrawPending = false
     protected var mService: InputView? = null
@@ -85,6 +111,57 @@ open class BaseKeyboardView(mContext: Context?) : View(mContext) {
         mService = service
     }
 
+    private fun buildGestureContext(session: TouchSession): GestureContext {
+        val layout = InputModeSwitcher.skbLayout
+        val threshold = EnvironmentSingleton.instance.heightForCandidatesArea / when (ThemeManager.prefs.symbolSlideUpMod.getValue()) {
+            KeyboardSymbolSlideUpMod.SHORT -> 3
+            KeyboardSymbolSlideUpMod.MEDIUM -> 2
+            else -> 1
+        }
+        val commands = if (layout == InputModeSwitcher.MASK_SKB_LAYOUT_LX17) {
+            mapOf(KeyEvent.KEYCODE_C to InputModeSwitcher.USER_KEYCODE_SELECT_ALL, KeyEvent.KEYCODE_Q to InputModeSwitcher.USER_KEYCODE_CUT, KeyEvent.KEYCODE_G to InputModeSwitcher.USER_KEYCODE_COPY, KeyEvent.KEYCODE_F to InputModeSwitcher.USER_KEYCODE_PASTE)
+        } else {
+            mapOf(KeyEvent.KEYCODE_Z to InputModeSwitcher.USER_KEYCODE_SELECT_ALL, KeyEvent.KEYCODE_X to InputModeSwitcher.USER_KEYCODE_CUT, KeyEvent.KEYCODE_C to InputModeSwitcher.USER_KEYCODE_COPY, KeyEvent.KEYCODE_V to InputModeSwitcher.USER_KEYCODE_PASTE)
+        }
+        return GestureContext(
+            layout = layout,
+            lx17Layout = InputModeSwitcher.MASK_SKB_LAYOUT_LX17,
+            englishLayout = InputModeSwitcher.MASK_SKB_LAYOUT_QWERTY_ABC,
+            isChinese = InputModeSwitcher.isChinese,
+            isEnglish = InputModeSwitcher.isEnglish,
+            symbolEnabled = ThemeManager.prefs.keyboardSymbol.getValue(),
+            symbolThreshold = threshold.toFloat(),
+            cursorThreshold = AppPrefs.getInstance().keyboardSetting.spaceSwipeMoveCursorSpeed.getValue().toFloat(),
+            deleteThreshold = 20f,
+            cursorKeyEligible = isLX17SecondRowKey(),
+            longPress = mLongPressKey,
+            keyCode = session.downKey?.code,
+            spaceKeyCode = KeyEvent.KEYCODE_SPACE,
+            editCommands = commands,
+            smallLabel = session.downKey?.getmKeyLabelSmall(),
+            keyLabel = session.downKey?.keyLabel.orEmpty(),
+        )
+    }
+
+    private fun executeGestureAction(action: GestureAction) {
+        when (action) {
+            is GestureAction.UserCommand -> {
+                mService?.responseKeyEvent(SoftKey(code = action.code))
+                if (mLongPressKey) {
+                    mLongPressKey = false
+                    popupComponent.dismissPopup()
+                }
+            }
+            is GestureAction.KeyEvent -> mService?.responseKeyEvent(SoftKey(code = action.code))
+            is GestureAction.PopupText -> {
+                mLongPressKey = true
+                mService?.responseLongKeyEvent(Pair(PopupMenuMode.Text, action.text))
+            }
+            is GestureAction.PopupMenu -> popupComponent.onGestureEvent(action.distanceY)
+            GestureAction.ToggleLX17English -> InputModeSwitcher.toggleLX17EnglishMode()
+        }
+    }
+
     override fun onAttachedToWindow() {
         super.onAttachedToWindow()
         initGestureDetector()
@@ -110,23 +187,23 @@ open class BaseKeyboardView(mContext: Context?) : View(mContext) {
         if (mGestureDetector == null) {
             mGestureDetector = GestureDetector(context, object : SimpleOnGestureListener() {
                 override fun onScroll(downEvent: MotionEvent?, currentEvent: MotionEvent, distanceX: Float, distanceY: Float): Boolean {
-                    if (mLongPressKey && isEditGestureKey()) {
+                    if (currentEvent.pointerCount > 1) return true
+                    val session = touchSession
+                    if (session != null && session.lifecycle == GestureLifecycle.DISCRETE_CONSUMED) return true
+                    if (mLongPressKey && !isLX17SecondRowKey()) {
                         dispatchGestureEvent(downEvent, currentEvent, distanceX, distanceY)
-                        if (gestureHandled) {
-                            mLongPressKey = false
-                            popupComponent.dismissPopup()
-                        } else {
-                            popupComponent.changeFocus(currentEvent.x - downEvent!!.x, currentEvent.y - downEvent.y)
-                        }
-                    } else if (mLongPressKey && isLX17SecondRowKey()) {
+                        return true
+                    }
+                    if (mLongPressKey) {
                         mLongPressKey = false
                         popupComponent.dismissPopup()
-                        dispatchGestureEvent(downEvent, currentEvent, distanceX, distanceY)
-                    } else if(mLongPressKey && mCurrentKey?.getkeyLabel()?.isNotBlank() == true){
-                        popupComponent.changeFocus(currentEvent.x - downEvent!!.x, currentEvent.y - downEvent.y)
-                    } else {
-                        dispatchGestureEvent(downEvent, currentEvent, distanceX, distanceY)
                     }
+                    if (session != null && gestureDispatcher.dispatch(session, currentEvent, buildGestureContext(session))) {
+                        removeMessages()
+                        mAbortKey = session.abortKey
+                        return true
+                    }
+                    dispatchGestureEvent(downEvent, currentEvent, distanceX, distanceY)
                     return true
                 }
                 override fun onDown(e: MotionEvent): Boolean {
@@ -180,10 +257,9 @@ open class BaseKeyboardView(mContext: Context?) : View(mContext) {
             return true
         }
         when (val action = me.actionMasked) {
-            MotionEvent.ACTION_DOWN, MotionEvent.ACTION_POINTER_DOWN -> {
-                val actionIndex = me.actionIndex
-                val x = me.getX(actionIndex)
-                val y = me.getY(actionIndex)
+            MotionEvent.ACTION_DOWN -> {
+                val x = me.x
+                val y = me.y
                 val now = me.eventTime
                 val down = MotionEvent.obtain(now, now, MotionEvent.ACTION_DOWN, x, y, me.metaState)
                 motionEventQueue.offer(down)
@@ -195,7 +271,16 @@ open class BaseKeyboardView(mContext: Context?) : View(mContext) {
                 }
                 showPreview(keyIndex)
             }
-            MotionEvent.ACTION_UP, MotionEvent.ACTION_POINTER_UP, MotionEvent.ACTION_CANCEL -> {
+            MotionEvent.ACTION_POINTER_DOWN -> {
+                mAbortKey = true
+                touchSession?.apply {
+                    abortKey = true
+                    lifecycle = GestureLifecycle.DISCRETE_CONSUMED
+                }
+                result = true
+            }
+            MotionEvent.ACTION_POINTER_UP -> result = true
+            MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
                 val now = me.eventTime
                 val act = if(action == MotionEvent.ACTION_CANCEL)MotionEvent.ACTION_CANCEL else MotionEvent.ACTION_UP
                 while (!motionEventQueue.isEmpty()) {
@@ -217,9 +302,17 @@ open class BaseKeyboardView(mContext: Context?) : View(mContext) {
         when (me.action) {
             MotionEvent.ACTION_DOWN -> {
                 mCurrentKey = getKeyIndices(me.x.toInt(), me.y.toInt())
+                touchSession = TouchSession(
+                    pointerId = me.getPointerId(0),
+                    downX = me.x,
+                    downY = me.y,
+                    downTime = me.eventTime,
+                    downKey = mCurrentKey,
+                )
                 mAbortKey = false
                 gestureHandled = false
                 mLongPressKey = false
+                gestureDispatcher.reset()
                 lx17CursorSwipeConsumed = false
                 lx17CursorGestureStartX = me.x
                 lx17CursorLastDispatchX = me.x
@@ -239,11 +332,13 @@ open class BaseKeyboardView(mContext: Context?) : View(mContext) {
                 mCurrentKey?.onReleased()
                 mCurrentKey = getKeyIndices(me.x.toInt(), me.y.toInt())
                 removeMessages()
-                if (!mAbortKey && !mLongPressKey && mCurrentKey != null) {
+                if (touchSession?.lifecycle == GestureLifecycle.UNDECIDED && !mAbortKey && !mLongPressKey && mCurrentKey != null) {
                     mService?.responseKeyEvent(mCurrentKey!!)
                 }
                 currentDistanceX = 0F
                 currentDistanceY = 0F
+                touchSession = null
+                gestureDispatcher.finish()
                 gestureHandled = false
                 resetLX17CursorSwipe()
             }
@@ -251,6 +346,8 @@ open class BaseKeyboardView(mContext: Context?) : View(mContext) {
                 removeMessages()
                 currentDistanceX = 0F
                 currentDistanceY = 0F
+                gestureDispatcher.cancel()
+                touchSession = null
                 gestureHandled = false
                 resetLX17CursorSwipe()
             }
@@ -344,6 +441,10 @@ open class BaseKeyboardView(mContext: Context?) : View(mContext) {
 
     // 处理手势滑动
     private fun dispatchGestureEvent(downEvent: MotionEvent?, currentEvent: MotionEvent, distanceX: Float, distanceY: Float) : Boolean {
+        if (mLongPressKey && !isEditGestureKey()) {
+            if (downEvent != null) popupComponent.changeFocus(currentEvent.x - downEvent.x, currentEvent.y - downEvent.y)
+            return true
+        }
         var result = false
         val currentX = currentEvent.x
         val currentY = currentEvent.y
@@ -371,9 +472,11 @@ open class BaseKeyboardView(mContext: Context?) : View(mContext) {
                 distanceX,
                 currentEvent.eventTime,
             )
-            if(mCurrentKey?.code == KeyEvent.KEYCODE_DEL && distanceX > 20){// 左滑删除
+            if(mCurrentKey?.code == KeyEvent.KEYCODE_DEL && distanceX > 20 && touchSession?.lifecycle != GestureLifecycle.DISCRETE_CONSUMED){// 左滑删除
                 removeMessages()
                 mAbortKey = true
+                gestureHandled = true
+                touchSession?.lifecycle = GestureLifecycle.DISCRETE_CONSUMED
                 mService?.responseKeyEvent(SoftKey(KeyEvent.KEYCODE_CLEAR))
             } else if (cursorSwipeKeyCode != null) {
                 removeMessages()
@@ -438,15 +541,25 @@ open class BaseKeyboardView(mContext: Context?) : View(mContext) {
                 removeMessages()
                 mAbortKey = true
                 mService?.responseKeyEvent(SoftKey(code = editKeyCode))
+                touchSession?.lifecycle = GestureLifecycle.DISCRETE_CONSUMED
+                if (mLongPressKey) {
+                    mLongPressKey = false
+                    popupComponent.dismissPopup()
+                }
                 result = true
             } else if (!gestureHandled && keyLableSmall?.isNotBlank() == true) {
-                if (isVertical && distanceY > 0 && relDiffY > symbolSlideUp &&
+                if (mLongPressKey) {
+                    if (downEvent != null) popupComponent.changeFocus(currentEvent.x - downEvent.x, currentEvent.y - downEvent.y)
+                } else if (isVertical && distanceY > 0 && relDiffY > symbolSlideUp &&
                     ThemeManager.prefs.keyboardSymbol.getValue()
                 ) {   // 向上滑动
                     lastEventX = currentX
                     lastEventY = currentY
                     lastEventActionIndex = currentEvent.actionIndex
                     mLongPressKey = true
+                    gestureHandled = true
+                    mAbortKey = true
+                    touchSession?.lifecycle = GestureLifecycle.DISCRETE_CONSUMED
                     removeMessages()
                     mService?.responseLongKeyEvent(Pair(PopupMenuMode.Text, keyLableSmall))
                     result = true
@@ -545,6 +658,8 @@ open class BaseKeyboardView(mContext: Context?) : View(mContext) {
 
     open fun closing() {
         removeMessages()
+        gestureDispatcher.cancel()
+        touchSession = null
     }
 
     private fun showBalloonText(key: SoftKey) {
