@@ -87,6 +87,10 @@ class EditPhrasesView(context: Context) : LinearLayout(context){
     }
 
     fun addPhrasesHandle() {
+        addPhrasesHandle(switchKeyboard = true)
+    }
+
+    fun addPhrasesHandle(switchKeyboard: Boolean) {
         val content = mEtPhrases.text.toString()
         if(content.isNotBlank()) {
             val pinYinHeadChar  = mEtPhrasesQuickCode.text.toString()
@@ -94,7 +98,7 @@ class EditPhrasesView(context: Context) : LinearLayout(context){
             val pinYinHeadLX17 = pinYinHeadChar.map { LX17PinYinUtils.pinyin2Lx17Key(it)}.joinToString("")
             val phrase =  Phrase(content = content, t9 = pinYinHeadT9, qwerty = pinYinHeadChar, lx17 = pinYinHeadLX17)
             DataBaseKT.instance.phraseDao().insert(phrase)
-            KeyboardManager.instance.switchKeyboard(InputModeSwitcher.skbImeLayout)
+            if (switchKeyboard) KeyboardManager.instance.switchKeyboard(InputModeSwitcher.skbImeLayout)
         }
     }
 

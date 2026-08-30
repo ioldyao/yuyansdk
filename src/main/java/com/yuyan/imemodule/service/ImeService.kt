@@ -1,6 +1,7 @@
 package com.yuyan.imemodule.service
 
 import android.content.res.Configuration
+import android.graphics.Rect
 import android.inputmethodservice.InputMethodService
 import android.os.SystemClock
 import android.text.InputType
@@ -115,20 +116,37 @@ class ImeService : InputMethodService() {
     }
 
     override fun onKeyDown(keyCode: Int, event: KeyEvent): Boolean {
-        // 0 != event.getRepeatCount()  长按物理按键或 Shift/Meta/Ctrl的组合按键时，交由系统处理;有个特殊组合键：Ctrl+SPACE切换语言
-        return if (0 != event.repeatCount || event.isShiftPressed || event.isMetaPressed) super.onKeyDown(keyCode, event)
-        else if(event.isCtrlPressed && keyCode != KeyEvent.KEYCODE_SPACE)super.onKeyDown(keyCode, event)
-        else if (isSoftKeyboard) mInputView.processKeyDown(keyCode, event) || super.onKeyUp(keyCode, event)
-        else if (isHardwareKeyboard) mCandidateView.processKeyDown(keyCode, event) || super.onKeyUp(keyCode, event)
-        else super.onKeyDown(keyCode, event)
+        // Keep BACK handling in InputMethodService so its down/up tracking remains intact.
+        if (keyCode == KeyEvent.KEYCODE_BACK) return super.onKeyDown(keyCode, event)
+
+        // Long-presses and modifier combinations are handled by the framework.
+        return if (event.repeatCount != 0 || event.isShiftPressed || event.isMetaPressed) {
+            super.onKeyDown(keyCode, event)
+        } else if (event.isCtrlPressed && keyCode != KeyEvent.KEYCODE_SPACE) {
+            super.onKeyDown(keyCode, event)
+        } else if (isSoftKeyboard && ::mInputView.isInitialized) {
+            mInputView.processKeyDown(keyCode, event) || super.onKeyDown(keyCode, event)
+        } else if (isHardwareKeyboard && ::mCandidateView.isInitialized) {
+            mCandidateView.processKeyDown(keyCode, event) || super.onKeyDown(keyCode, event)
+        } else {
+            super.onKeyDown(keyCode, event)
+        }
     }
 
     override fun onKeyUp(keyCode: Int, event: KeyEvent): Boolean {
-        return if (0 != event.repeatCount || event.isShiftPressed || event.isMetaPressed) super.onKeyDown(keyCode, event)
-        else if(event.isCtrlPressed && keyCode != KeyEvent.KEYCODE_SPACE)super.onKeyDown(keyCode, event)
-        else if (isSoftKeyboard) mInputView.processKeyUp(event) || super.onKeyUp(keyCode, event)
-        else if (isHardwareKeyboard) mCandidateView.processKeyUp(event) || super.onKeyUp(keyCode, event)
-        else super.onKeyDown(keyCode, event)
+        if (keyCode == KeyEvent.KEYCODE_BACK) return super.onKeyUp(keyCode, event)
+
+        return if (event.repeatCount != 0 || event.isShiftPressed || event.isMetaPressed) {
+            super.onKeyUp(keyCode, event)
+        } else if (event.isCtrlPressed && keyCode != KeyEvent.KEYCODE_SPACE) {
+            super.onKeyUp(keyCode, event)
+        } else if (isSoftKeyboard && ::mInputView.isInitialized) {
+            mInputView.processKeyUp(event) || super.onKeyUp(keyCode, event)
+        } else if (isHardwareKeyboard && ::mCandidateView.isInitialized) {
+            mCandidateView.processKeyUp(event) || super.onKeyUp(keyCode, event)
+        } else {
+            super.onKeyUp(keyCode, event)
+        }
     }
 
     override fun setInputView(view: View) {
@@ -144,27 +162,70 @@ class ImeService : InputMethodService() {
 
 
     override fun onComputeInsets(outInsets: Insets) {
-        val (x, y) = if (isSoftKeyboard && ::mInputView.isInitialized) intArrayOf(0, 0).also {if(mInputView.isAddPhrases) mInputView.mAddPhrasesLayout.getLocationInWindow(it) else mInputView.mSkbRoot.getLocationInWindow(it) }
-        else if (isHardwareKeyboard && ::mCandidateView.isInitialized) intArrayOf(0, 0).also {mCandidateView.mSkbRoot.getLocationInWindow(it) }
-        else intArrayOf(0, 0)
-        outInsets.apply {
-            if(isSoftKeyboard || !isHardwareKeyboard){
-                if(EnvironmentSingleton.instance.keyboardModeFloat) {
+        super.onComputeInsets(outInsets)
+
+        if (isSoftKeyboard && isInputViewShown && ::mInputView.isInitialized) {
+            val inputRoot = mInputView.mSkbRoot
+            if (!inputRoot.isAttachedToWindow || !inputRoot.isLaidOut || inputRoot.width <= 0 || inputRoot.height <= 0) return
+
+            val location = IntArray(2)
+            if (mInputView.isAddPhrases) {
+                mInputView.mAddPhrasesLayout.getLocationInWindow(location)
+            } else {
+                inputRoot.getLocationInWindow(location)
+            }
+            if (EnvironmentSingleton.instance.keyboardModeFloat) {
+                val rootLocation = IntArray(2)
+                inputRoot.getLocationInWindow(rootLocation)
+                val region = Rect(
+                    rootLocation[0],
+                    rootLocation[1],
+                    rootLocation[0] + inputRoot.width,
+                    rootLocation[1] + inputRoot.height
+                )
+                if (mInputView.isAddPhrases) {
+                    val phrasesView = mInputView.mAddPhrasesLayout
+                    if (phrasesView.isAttachedToWindow && phrasesView.isLaidOut && phrasesView.width > 0 && phrasesView.height > 0) {
+                        val phrasesLocation = IntArray(2)
+                        phrasesView.getLocationInWindow(phrasesLocation)
+                        region.union(
+                            phrasesLocation[0],
+                            phrasesLocation[1],
+                            phrasesLocation[0] + phrasesView.width,
+                            phrasesLocation[1] + phrasesView.height
+                        )
+                    }
+                }
+                outInsets.apply {
                     contentTopInsets = EnvironmentSingleton.instance.mScreenHeight
                     visibleTopInsets = EnvironmentSingleton.instance.mScreenHeight
                     touchableInsets = Insets.TOUCHABLE_INSETS_REGION
-                    touchableRegion.set(x, y, x + mInputView.mSkbRoot.width, y + mInputView.mSkbRoot.height)
-                } else {
-                    contentTopInsets = y
-                    touchableInsets = Insets.TOUCHABLE_INSETS_CONTENT
-                    touchableRegion.setEmpty()
-                    visibleTopInsets = y
+                    touchableRegion.set(region)
                 }
             } else {
+                outInsets.apply {
+                    contentTopInsets = location[1]
+                    visibleTopInsets = location[1]
+                    touchableInsets = Insets.TOUCHABLE_INSETS_CONTENT
+                    touchableRegion.setEmpty()
+                }
+            }
+        } else if (isHardwareKeyboard && ::mCandidateView.isInitialized) {
+            val candidateRoot = mCandidateView.mSkbRoot
+            if (!candidateRoot.isAttachedToWindow || !candidateRoot.isLaidOut || candidateRoot.width <= 0 || candidateRoot.height <= 0) return
+
+            val location = IntArray(2)
+            candidateRoot.getLocationInWindow(location)
+            outInsets.apply {
                 contentTopInsets = EnvironmentSingleton.instance.mScreenHeight
                 visibleTopInsets = EnvironmentSingleton.instance.mScreenHeight
                 touchableInsets = Insets.TOUCHABLE_INSETS_REGION
-                touchableRegion.set(x, y, x + mCandidateView.mSkbRoot.width, y + mCandidateView.mSkbRoot.height)
+                touchableRegion.set(
+                    location[0],
+                    location[1],
+                    location[0] + candidateRoot.width,
+                    location[1] + candidateRoot.height
+                )
             }
         }
     }

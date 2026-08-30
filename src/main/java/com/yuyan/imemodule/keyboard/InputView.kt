@@ -10,8 +10,6 @@ import android.view.LayoutInflater
 import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup
-import android.view.WindowInsets
-import android.view.WindowInsetsController
 import android.view.inputmethod.EditorInfo
 import android.widget.ImageButton
 import android.widget.ImageView
@@ -20,7 +18,6 @@ import android.widget.RelativeLayout
 import androidx.core.graphics.drawable.toDrawable
 import androidx.core.graphics.scale
 import androidx.core.view.ViewCompat
-import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.get
 import androidx.core.view.postDelayed
@@ -90,6 +87,9 @@ class InputView(context: Context, private val service: ImeService) : LifecycleRe
     var hasSelectionAll = false
     // 记录删除内容
     private val textBeforeCursors = StringQueue(50)
+    private companion object {
+        const val HIDDEN_REFRESH_DELAY = 16L
+    }
 
     init {
         LogUtil.d("1111111111111", "InputView init")
@@ -334,7 +334,7 @@ class InputView(context: Context, private val service: ImeService) : LifecycleRe
         when (keyCode) {
             KeyEvent.KEYCODE_DPAD_UP, KeyEvent.KEYCODE_DPAD_DOWN, KeyEvent.KEYCODE_DPAD_LEFT, KeyEvent.KEYCODE_DPAD_RIGHT,
             KeyEvent.KEYCODE_APOSTROPHE, KeyEvent.KEYCODE_SPACE,
-            KeyEvent.KEYCODE_ENTER, KeyEvent.KEYCODE_DEL, KeyEvent.KEYCODE_BACK -> return true
+            KeyEvent.KEYCODE_ENTER, KeyEvent.KEYCODE_DEL -> return true
         }
         return false
     }
@@ -376,12 +376,9 @@ class InputView(context: Context, private val service: ImeService) : LifecycleRe
         return result
     }
 
-    // 系统按键只处理返回键，当点击返回键且软键盘显示时，隐藏键盘并消费事件
+    // System BACK is handled by InputMethodService to preserve framework tracking.
     private fun processSystemKeys(event: KeyEvent): Boolean {
-        return when (event.keyCode) {
-            KeyEvent.KEYCODE_BACK -> if (service.isInputViewShown) { requestHideSelf(); true } else false
-            else -> false
-        }
+        return false
     }
 
     fun isFunctionKey(keyCode: Int): Boolean {
@@ -666,18 +663,12 @@ class InputView(context: Context, private val service: ImeService) : LifecycleRe
     }
 
     private fun initNavbarBackground(service: ImeService) {
-        service.window.window?.also { win ->
-            WindowCompat.setDecorFitsSystemWindows(win, false)
-            if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) {
-                @Suppress("DEPRECATION")
-                win.navigationBarColor = Color.TRANSPARENT
-            } else {
-                win.insetsController?.apply {
-                    hide(WindowInsets.Type.navigationBars())
-                    systemBarsBehavior = WindowInsetsController.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
-                }
+        service.window.window?.also { window ->
+            @Suppress("DEPRECATION")
+            window.navigationBarColor = Color.TRANSPARENT
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                window.isNavigationBarContrastEnforced = false
             }
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) win.isNavigationBarContrastEnforced = false
         }
 
         ViewCompat.setOnApplyWindowInsetsListener(this) { _, insets ->
@@ -693,7 +684,19 @@ class InputView(context: Context, private val service: ImeService) : LifecycleRe
         }
     }
 
+    private var hiddenRefreshTask: Runnable? = null
+    private var inputWindowShown = false
+    private var pendingHiddenRefresh = false
+    private var pendingPhraseCleanup = false
+
     fun onStartInputView(editorInfo: EditorInfo, restarting: Boolean) {
+        hiddenRefreshTask?.let(::removeCallbacks)
+        hiddenRefreshTask = null
+        pendingHiddenRefresh = false
+        if (pendingPhraseCleanup) {
+            pendingPhraseCleanup = false
+            initView(context)
+        }
         InputModeSwitcher.requestInputWithSkb(editorInfo)
         if (!restarting) {
             resetToIdleState()
@@ -713,17 +716,49 @@ class InputView(context: Context, private val service: ImeService) : LifecycleRe
     }
 
     fun onWindowShown() {
+        inputWindowShown = true
+        pendingHiddenRefresh = false
+        hiddenRefreshTask?.let(::removeCallbacks)
+        hiddenRefreshTask = null
         chinesePrediction = appPrefs.input.chinesePrediction.getValue()
     }
 
     fun onWindowHidden() {
+        inputWindowShown = false
+        hiddenRefreshTask?.let(::removeCallbacks)
+        hiddenRefreshTask = null
+
+        // Persist edited phrases before the view can be detached.
         if (isAddPhrases) {
             isAddPhrases = false
-            mAddPhrasesLayout.addPhrasesHandle()
+            mAddPhrasesLayout.addPhrasesHandle(switchKeyboard = false)
+            pendingPhraseCleanup = true
+        }
+        pendingHiddenRefresh = true
+        hiddenRefreshTask = Runnable {
+            hiddenRefreshTask = null
+            performHiddenRefresh()
+        }
+        postDelayed(hiddenRefreshTask!!, HIDDEN_REFRESH_DELAY)
+    }
+
+    private fun performHiddenRefresh() {
+        if (inputWindowShown || !isAttachedToWindow || !pendingHiddenRefresh) return
+        pendingHiddenRefresh = false
+        if (pendingPhraseCleanup) {
+            pendingPhraseCleanup = false
             initView(context)
         }
         KeyboardManager.instance.switchKeyboard()
         resetToIdleState()
+    }
+
+    override fun onDetachedFromWindow() {
+        hiddenRefreshTask?.let(::removeCallbacks)
+        hiddenRefreshTask = null
+        pendingHiddenRefresh = false
+        inputWindowShown = false
+        super.onDetachedFromWindow()
     }
 
     private var selStart = 0
