@@ -646,7 +646,15 @@ class InputView(context: Context, private val service: ImeService) : LifecycleRe
     }
 
     private fun commitTextEditMenu(id: Int?) {
-        id?.let { service.commitTextEditMenu(it) }
+        preserveEnglishQwertyOnRestart = id == android.R.id.paste &&
+            InputModeSwitcher.isEnglish &&
+            InputModeSwitcher.skbLayout == InputModeSwitcher.MASK_SKB_LAYOUT_QWERTY_ABC
+        id?.let {
+            service.commitTextEditMenu(it)
+            if (it == android.R.id.paste) {
+                postDelayed(500) { preserveEnglishQwertyOnRestart = false }
+            }
+        }
     }
 
     fun performEditorAction(editorAction: Int) = service.performEditorAction(editorAction)
@@ -693,8 +701,14 @@ class InputView(context: Context, private val service: ImeService) : LifecycleRe
         }
     }
 
+    private var preserveEnglishQwertyOnRestart = false
+
     fun onStartInputView(editorInfo: EditorInfo, restarting: Boolean) {
-        InputModeSwitcher.requestInputWithSkb(editorInfo)
+        val preserveEnglishQwerty = restarting && preserveEnglishQwertyOnRestart &&
+            InputModeSwitcher.isEnglish &&
+            InputModeSwitcher.skbLayout == InputModeSwitcher.MASK_SKB_LAYOUT_QWERTY_ABC
+        preserveEnglishQwertyOnRestart = false
+        InputModeSwitcher.requestInputWithSkb(editorInfo, preserveCurrentMode = preserveEnglishQwerty)
         if (!restarting) {
             resetToIdleState()
             val clipboard = appPrefs.clipboard

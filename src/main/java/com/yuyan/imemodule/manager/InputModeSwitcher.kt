@@ -217,7 +217,13 @@ object InputModeSwitcher {
     /**
      * 根据编辑框的 EditorInfo 信息获取软键盘的输入法模式。
      */
-    fun requestInputWithSkb(editorInfo: EditorInfo) {
+    fun requestInputWithSkb(editorInfo: EditorInfo, preserveCurrentMode: Boolean = false) {
+        if (preserveCurrentMode && isEnglish && skbLayout == MASK_SKB_LAYOUT_QWERTY_ABC) {
+            val hasNoEnterAction = (editorInfo.imeOptions and EditorInfo.IME_FLAG_NO_ENTER_ACTION) != 0
+            mToggleStates.imeAction = if(hasNoEnterAction) 0 else editorInfo.imeOptions and EditorInfo.IME_MASK_ACTION
+            (KeyboardManager.instance.currentContainer as? InputBaseContainer)?.updateStates()
+            return
+        }
         mLx17ModeBeforeEnglish = MODE_UNSET
         var newInputMode: Int
         when (editorInfo.inputType and EditorInfo.TYPE_MASK_CLASS) {

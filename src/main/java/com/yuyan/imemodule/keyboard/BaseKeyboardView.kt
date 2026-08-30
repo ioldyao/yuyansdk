@@ -59,6 +59,17 @@ open class BaseKeyboardView(mContext: Context?) : View(mContext) {
         )
     }
 
+    private fun isEditGestureKey(): Boolean {
+        if (isEnglishQwertyEditGestureKey()) return true
+        if (InputModeSwitcher.skbLayout != InputModeSwitcher.MASK_SKB_LAYOUT_LX17) return false
+        return mCurrentKey?.code in setOf(
+            KeyEvent.KEYCODE_C,
+            KeyEvent.KEYCODE_Q,
+            KeyEvent.KEYCODE_G,
+            KeyEvent.KEYCODE_F,
+        )
+    }
+
     private fun englishQwertyEditGestureKeyCode(): Int? {
         if (!isEnglishQwertyEditGestureKey()) return null
         return when (mCurrentKey?.code) {
@@ -99,7 +110,7 @@ open class BaseKeyboardView(mContext: Context?) : View(mContext) {
         if (mGestureDetector == null) {
             mGestureDetector = GestureDetector(context, object : SimpleOnGestureListener() {
                 override fun onScroll(downEvent: MotionEvent?, currentEvent: MotionEvent, distanceX: Float, distanceY: Float): Boolean {
-                    if (mLongPressKey && isEnglishQwertyEditGestureKey()) {
+                    if (mLongPressKey && isEditGestureKey()) {
                         dispatchGestureEvent(downEvent, currentEvent, distanceX, distanceY)
                         if (gestureHandled) {
                             mLongPressKey = false
