@@ -40,6 +40,7 @@ open class BaseKeyboardView(mContext: Context?) : View(mContext) {
     private var mGestureDetector: GestureDetector? = null
     protected var mLongPressKey = false
     private var mAbortKey = false
+    private var gestureHandled = false
     private var mHandler: Handler? = null
     protected var mDrawPending = false
     protected var mService: InputView? = null
@@ -168,6 +169,7 @@ open class BaseKeyboardView(mContext: Context?) : View(mContext) {
             MotionEvent.ACTION_DOWN -> {
                 mCurrentKey = getKeyIndices(me.x.toInt(), me.y.toInt())
                 mAbortKey = false
+                gestureHandled = false
                 mLongPressKey = false
                 if(mCurrentKey != null){
                     if (mCurrentKey!!.repeatable()) {
@@ -187,11 +189,13 @@ open class BaseKeyboardView(mContext: Context?) : View(mContext) {
                 }
                 currentDistanceX = 0F
                 currentDistanceY = 0F
+                gestureHandled = false
             }
             MotionEvent.ACTION_CANCEL -> {
                 removeMessages()
                 currentDistanceX = 0F
                 currentDistanceY = 0F
+                gestureHandled = false
             }
         }
         return true
@@ -238,8 +242,30 @@ open class BaseKeyboardView(mContext: Context?) : View(mContext) {
                 mService!!.responseKeyEvent(SoftKey(code = if (distanceX > 0) KeyEvent.KEYCODE_DPAD_LEFT else KeyEvent.KEYCODE_DPAD_RIGHT))
                 result = true
             }
-        } else if(keyLableSmall?.isNotBlank() == true){
-            if (isVertical && distanceY > 0 && relDiffY > symbolSlideUp && ThemeManager.prefs.keyboardSymbol.getValue()){   // 向上滑动
+        } else {
+            val editKeyCode = if (InputModeSwitcher.skbLayout == InputModeSwitcher.MASK_SKB_LAYOUT_LX17 &&
+                !gestureHandled && isVertical && distanceY < 0 && relDiffY > symbolSlideUp) {
+                when (mCurrentKey?.code) {
+                    KeyEvent.KEYCODE_C -> InputModeSwitcher.USER_KEYCODE_SELECT_ALL
+                    KeyEvent.KEYCODE_Q -> InputModeSwitcher.USER_KEYCODE_CUT
+                    KeyEvent.KEYCODE_G -> InputModeSwitcher.USER_KEYCODE_COPY
+                    KeyEvent.KEYCODE_F -> InputModeSwitcher.USER_KEYCODE_PASTE
+                    else -> null
+                }
+            } else {
+                null
+            }
+            if (editKeyCode != null) {
+                lastEventX = currentX
+                lastEventY = currentY
+                lastEventActionIndex = currentEvent.actionIndex
+                gestureHandled = true
+                removeMessages()
+                mAbortKey = true
+                mService?.responseKeyEvent(SoftKey(code = editKeyCode))
+                result = true
+            } else if (!gestureHandled && keyLableSmall?.isNotBlank() == true){
+                if (isVertical && distanceY > 0 && relDiffY > symbolSlideUp && ThemeManager.prefs.keyboardSymbol.getValue()){   // 向上滑动
                 lastEventX = currentX
                 lastEventY = currentY
                 lastEventActionIndex = currentEvent.actionIndex
@@ -248,7 +274,7 @@ open class BaseKeyboardView(mContext: Context?) : View(mContext) {
                 mService?.responseLongKeyEvent(Pair(PopupMenuMode.Text, keyLableSmall))
                 result = true
             }
-        } else {  // 菜单
+        } else if (!gestureHandled) {  // 菜单
             if (isVertical && relDiffY > symbolSlideUp * 2) {   // 向上滑动
                 lastEventX = currentX
                 lastEventY = currentY
@@ -258,6 +284,7 @@ open class BaseKeyboardView(mContext: Context?) : View(mContext) {
             } else {
                 if(downEvent != null) popupComponent.changeFocus(currentEvent.x - downEvent.x, currentEvent.y - downEvent.y)
             }
+        }
         }
         return result
     }
