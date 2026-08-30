@@ -348,7 +348,24 @@ open class BaseKeyboardView(mContext: Context?) : View(mContext) {
                 result = true
             }
         } else {
-            val editKeyCode = if (InputModeSwitcher.skbLayout == InputModeSwitcher.MASK_SKB_LAYOUT_LX17 &&
+            val shouldToggleLX17English =
+                !gestureHandled &&
+                    isVertical &&
+                    distanceY > 0 &&
+                    relDiffY > symbolSlideUp &&
+                    mCurrentKey?.code == KeyEvent.KEYCODE_SPACE &&
+                    InputModeSwitcher.toggleLX17EnglishMode()
+            if (shouldToggleLX17English) {
+                lastEventX = currentX
+                lastEventY = currentY
+                lastEventActionIndex = currentEvent.actionIndex
+                gestureHandled = true
+                removeMessages()
+                mAbortKey = true
+                result = true
+            }
+            val editKeyCode = if (!shouldToggleLX17English &&
+                InputModeSwitcher.skbLayout == InputModeSwitcher.MASK_SKB_LAYOUT_LX17 &&
                 !gestureHandled && isVertical && distanceY < 0 && relDiffY > symbolSlideUp) {
                 when (mCurrentKey?.code) {
                     KeyEvent.KEYCODE_C -> InputModeSwitcher.USER_KEYCODE_SELECT_ALL

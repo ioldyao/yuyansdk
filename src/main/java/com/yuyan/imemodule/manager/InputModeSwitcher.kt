@@ -8,6 +8,7 @@ import com.yuyan.imemodule.keyboard.KeyboardManager
 import com.yuyan.imemodule.keyboard.container.InputBaseContainer
 import com.yuyan.imemodule.utils.KeyboardLoaderUtil
 import com.yuyan.inputmethod.core.Kernel
+import com.yuyan.imemodule.service.DecodingInfo
 
 /**
  * 输入法模式转换器。设置输入法的软键盘。
@@ -188,6 +189,7 @@ object InputModeSwitcher {
      * The input mode for the current edit box. 当前输入法的模式
      */
     private var mInputMode = MODE_UNSET
+    private var mLx17ModeBeforeEnglish = MODE_UNSET
 
     /**
      * Used to remember recent mode to input language. 最近的语言输入法模式
@@ -216,6 +218,7 @@ object InputModeSwitcher {
      * 根据编辑框的 EditorInfo 信息获取软键盘的输入法模式。
      */
     fun requestInputWithSkb(editorInfo: EditorInfo) {
+        mLx17ModeBeforeEnglish = MODE_UNSET
         var newInputMode: Int
         when (editorInfo.inputType and EditorInfo.TYPE_MASK_CLASS) {
             EditorInfo.TYPE_CLASS_NUMBER, EditorInfo.TYPE_CLASS_PHONE, EditorInfo.TYPE_CLASS_DATETIME -> newInputMode = MASK_SKB_LAYOUT_NUMBER
@@ -327,9 +330,36 @@ object InputModeSwitcher {
         get() = mToggleStates.modifiers == MASK_CASE_LOWER
 
     /**
+     * Toggle between the LX17 Chinese keyboard and the English QWERTY keyboard.
+     */
+    fun toggleLX17EnglishMode(): Boolean {
+        if (skbLayout == MASK_SKB_LAYOUT_LX17 && isChinese) {
+            val previousMode = mInputMode
+            DecodingInfo.reset()
+            saveInputMode(MODE_SKB_ENGLISH_LOWER, rememberAsDefault = false)
+            mLx17ModeBeforeEnglish = previousMode
+            KeyboardManager.instance.switchKeyboard()
+            return true
+        }
+
+        if (isEnglish && skbLayout == MASK_SKB_LAYOUT_QWERTY_ABC && mLx17ModeBeforeEnglish != MODE_UNSET) {
+            val previousMode = mLx17ModeBeforeEnglish
+            mLx17ModeBeforeEnglish = MODE_UNSET
+            DecodingInfo.reset()
+            saveInputMode(previousMode, rememberAsDefault = false)
+            KeyboardManager.instance.switchKeyboard()
+            return true
+        }
+
+        return false
+    }
+
+    /**
      * 保存新的输入法模式
      */
-    fun saveInputMode(newInputMode: Int) {
+    @JvmOverloads
+    fun saveInputMode(newInputMode: Int, rememberAsDefault: Boolean = true) {
+        mLx17ModeBeforeEnglish = MODE_UNSET
         mInputMode = newInputMode // 设置新的输入法模式为当前的输入法模式
         if (isEnglish) {
             Kernel.initImeSchema(CustomConstant.SCHEMA_EN)
@@ -338,7 +368,9 @@ object InputModeSwitcher {
         }
         if (isChinese || isEnglish) {
             mRecentLauageInputMode = mInputMode
-            getInstance().internal.inputDefaultMode.setValue(mInputMode)
+            if (rememberAsDefault) {
+                getInstance().internal.inputDefaultMode.setValue(mInputMode)
+            }
         }
         mToggleStates.modifiers = when(Kernel.getCurrentRimeSchema()) {
             CustomConstant.SCHEMA_ZH_T9, CustomConstant.SCHEMA_ZH_STROKE, CustomConstant.SCHEMA_ZH_DOUBLE_LX17 -> KeyEvent.META_CAPS_LOCK_ON
@@ -362,6 +394,7 @@ object InputModeSwitcher {
     fun reset( ) {
         mInputMode = MODE_UNSET
         mRecentLauageInputMode = MODE_UNSET
+        mLx17ModeBeforeEnglish = MODE_UNSET
     }
 
 }
