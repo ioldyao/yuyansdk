@@ -77,6 +77,16 @@ object KeyboardData {
             arrayOf(31, 45, 35, 34, 48, 67)),
     )
 
+    /** LX17 second-row keys supporting horizontal cursor gestures. */
+    val lx17CursorSwipeLeftKeys = setOf(
+        KeyEvent.KEYCODE_D,
+        KeyEvent.KEYCODE_Y,
+        KeyEvent.KEYCODE_W,
+        KeyEvent.KEYCODE_J,
+        KeyEvent.KEYCODE_N,
+    )
+    val lx17CursorSwipeRightKeys = lx17CursorSwipeLeftKeys + KeyEvent.KEYCODE_L
+
     val layoutLX17CnWithLeftPrefix: Map<SkbStyleMode, ArrayList<Array<Int>>> = linkedMapOf(
         SkbStyleMode.Google to arrayListOf(
             arrayOf(InputModeSwitcher.USER_KEYCODE_LEFT_SYMBOL, 36, 47, 54, 30, 52, 41),

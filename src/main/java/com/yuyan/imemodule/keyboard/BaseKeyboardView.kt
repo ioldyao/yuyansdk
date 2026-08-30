@@ -73,7 +73,11 @@ open class BaseKeyboardView(mContext: Context?) : View(mContext) {
         if (mGestureDetector == null) {
             mGestureDetector = GestureDetector(context, object : SimpleOnGestureListener() {
                 override fun onScroll(downEvent: MotionEvent?, currentEvent: MotionEvent, distanceX: Float, distanceY: Float): Boolean {
-                    if(mLongPressKey && mCurrentKey?.getkeyLabel()?.isNotBlank() == true){
+                    if (mLongPressKey && isLX17SecondRowKey()) {
+                        mLongPressKey = false
+                        popupComponent.dismissPopup()
+                        dispatchGestureEvent(downEvent, currentEvent, distanceX, distanceY)
+                    } else if(mLongPressKey && mCurrentKey?.getkeyLabel()?.isNotBlank() == true){
                         popupComponent.changeFocus(currentEvent.x - downEvent!!.x, currentEvent.y - downEvent.y)
                     } else {
                         dispatchGestureEvent(downEvent, currentEvent, distanceX, distanceY)
@@ -171,6 +175,12 @@ open class BaseKeyboardView(mContext: Context?) : View(mContext) {
                 mAbortKey = false
                 gestureHandled = false
                 mLongPressKey = false
+                lx17CursorSwipeConsumed = false
+                lx17CursorGestureStartX = me.x
+                lx17CursorLastDispatchX = me.x
+                lx17CursorDirection = 0
+                lx17CursorGestureStartAt = me.eventTime
+                lx17CursorLastDispatchAt = 0L
                 if(mCurrentKey != null){
                     if (mCurrentKey!!.repeatable()) {
                         val msg = mHandler!!.obtainMessage(MSG_REPEAT)
@@ -190,12 +200,14 @@ open class BaseKeyboardView(mContext: Context?) : View(mContext) {
                 currentDistanceX = 0F
                 currentDistanceY = 0F
                 gestureHandled = false
+                resetLX17CursorSwipe()
             }
             MotionEvent.ACTION_CANCEL -> {
                 removeMessages()
                 currentDistanceX = 0F
                 currentDistanceY = 0F
                 gestureHandled = false
+                resetLX17CursorSwipe()
             }
         }
         return true
@@ -206,6 +218,85 @@ open class BaseKeyboardView(mContext: Context?) : View(mContext) {
     private var currentDistanceY:Float = 0f
     private var currentDistanceX:Float = 0f
     private var lastEventActionIndex:Int = 0
+    private var lx17CursorSwipeConsumed = false
+    private var lx17CursorGestureStartX = 0f
+    private var lx17CursorLastDispatchX = 0f
+    private var lx17CursorDirection = 0
+    private var lx17CursorGestureStartAt = 0L
+    private var lx17CursorLastDispatchAt = 0L
+
+    private fun isLX17SecondRowKey(): Boolean {
+        if (InputModeSwitcher.skbLayout != InputModeSwitcher.MASK_SKB_LAYOUT_LX17) return false
+        val currentKey = mCurrentKey ?: return false
+        return mSoftKeyboard?.mKeyRows?.any { row ->
+            row.size == 6 &&
+                row.map { it.code }.toSet() == KeyboardData.lx17CursorSwipeRightKeys &&
+                row.contains(currentKey)
+        } == true
+    }
+
+    private fun lx17CursorSwipeKeyCode(
+        currentX: Float,
+        distanceX: Float,
+        eventTime: Long,
+    ): Int? {
+        if (!isLX17SecondRowKey()) return null
+        val currentKeyCode = mCurrentKey?.code ?: return null
+        val direction = if (distanceX > 0) {
+            KeyEvent.KEYCODE_DPAD_LEFT
+        } else {
+            KeyEvent.KEYCODE_DPAD_RIGHT
+        }
+        val directionAllowed = when (direction) {
+            KeyEvent.KEYCODE_DPAD_LEFT -> currentKeyCode in KeyboardData.lx17CursorSwipeLeftKeys
+            else -> currentKeyCode in KeyboardData.lx17CursorSwipeRightKeys
+        }
+        if (!directionAllowed) return null
+
+        val step = maxOf(
+            AppPrefs.getInstance().keyboardSetting.spaceSwipeMoveCursorSpeed.getValue().toFloat(),
+            LX17_CURSOR_STEP_PX,
+        )
+        if (!lx17CursorSwipeConsumed) {
+            return direction.takeIf {
+                abs(currentX - lx17CursorGestureStartX) >= step
+            }
+        }
+
+        if (direction != lx17CursorDirection) {
+            lx17CursorDirection = direction
+            lx17CursorLastDispatchX = currentX
+            return null
+        }
+        if (eventTime - lx17CursorGestureStartAt < LX17_CURSOR_HOLD_DELAY_MS ||
+            eventTime - lx17CursorLastDispatchAt < LX17_CURSOR_REPEAT_INTERVAL_MS ||
+            abs(currentX - lx17CursorLastDispatchX) < step
+        ) {
+            return null
+        }
+        return direction
+    }
+
+    private fun recordLX17CursorSwipe(
+        direction: Int,
+        currentX: Float,
+        eventTime: Long,
+    ) {
+        lx17CursorSwipeConsumed = true
+        lx17CursorDirection = direction
+        lx17CursorLastDispatchX = currentX
+        lx17CursorLastDispatchAt = eventTime
+    }
+
+    private fun resetLX17CursorSwipe() {
+        lx17CursorSwipeConsumed = false
+        lx17CursorGestureStartX = 0f
+        lx17CursorLastDispatchX = 0f
+        lx17CursorDirection = 0
+        lx17CursorGestureStartAt = 0L
+        lx17CursorLastDispatchAt = 0L
+    }
+
     // 处理手势滑动
     private fun dispatchGestureEvent(downEvent: MotionEvent?, currentEvent: MotionEvent, distanceX: Float, distanceY: Float) : Boolean {
         var result = false
@@ -230,10 +321,24 @@ open class BaseKeyboardView(mContext: Context?) : View(mContext) {
         val spaceSwipeMoveCursorSpeed = AppPrefs.getInstance().keyboardSetting.spaceSwipeMoveCursorSpeed.getValue()
         if (!isVertical && relDiffX > spaceSwipeMoveCursorSpeed) {  // 左右滑动
             val isSwipeKey = mCurrentKey?.code == KeyEvent.KEYCODE_SPACE || mCurrentKey?.code == KeyEvent.KEYCODE_0
+            val cursorSwipeKeyCode = lx17CursorSwipeKeyCode(
+                currentX,
+                distanceX,
+                currentEvent.eventTime,
+            )
             if(mCurrentKey?.code == KeyEvent.KEYCODE_DEL && distanceX > 20){// 左滑删除
                 removeMessages()
                 mAbortKey = true
                 mService?.responseKeyEvent(SoftKey(KeyEvent.KEYCODE_CLEAR))
+            } else if (cursorSwipeKeyCode != null) {
+                removeMessages()
+                lastEventX = currentX
+                lastEventY = currentY
+                mAbortKey = true
+                gestureHandled = true
+                recordLX17CursorSwipe(cursorSwipeKeyCode, currentX, currentEvent.eventTime)
+                mService?.responseKeyEvent(SoftKey(code = cursorSwipeKeyCode))
+                result = true
             } else if (isSwipeKey && AppPrefs.getInstance().keyboardSetting.spaceSwipeMoveCursor.getValue()) {  // 左右滑动
                 removeMessages()
                 lastEventX = currentX
@@ -391,6 +496,9 @@ open class BaseKeyboardView(mContext: Context?) : View(mContext) {
     }
 
     companion object {
+        private const val LX17_CURSOR_STEP_PX = 24f
+        private const val LX17_CURSOR_HOLD_DELAY_MS = 300L
+        private const val LX17_CURSOR_REPEAT_INTERVAL_MS = 120L
         private const val MSG_SHOW_PREVIEW = 1
         private const val MSG_REPEAT = 3
         private const val MSG_LONGPRESS = 4
