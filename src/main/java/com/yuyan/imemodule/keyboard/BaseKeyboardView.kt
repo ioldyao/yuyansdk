@@ -44,6 +44,32 @@ open class BaseKeyboardView(mContext: Context?) : View(mContext) {
     private var mHandler: Handler? = null
     protected var mDrawPending = false
     protected var mService: InputView? = null
+
+    private fun isEnglishQwertyEditGestureKey(): Boolean {
+        if (!InputModeSwitcher.isEnglish ||
+            InputModeSwitcher.skbLayout != InputModeSwitcher.MASK_SKB_LAYOUT_QWERTY_ABC
+        ) {
+            return false
+        }
+        return mCurrentKey?.code in setOf(
+            KeyEvent.KEYCODE_Z,
+            KeyEvent.KEYCODE_X,
+            KeyEvent.KEYCODE_C,
+            KeyEvent.KEYCODE_V,
+        )
+    }
+
+    private fun englishQwertyEditGestureKeyCode(): Int? {
+        if (!isEnglishQwertyEditGestureKey()) return null
+        return when (mCurrentKey?.code) {
+            KeyEvent.KEYCODE_Z -> InputModeSwitcher.USER_KEYCODE_SELECT_ALL
+            KeyEvent.KEYCODE_X -> InputModeSwitcher.USER_KEYCODE_CUT
+            KeyEvent.KEYCODE_C -> InputModeSwitcher.USER_KEYCODE_COPY
+            KeyEvent.KEYCODE_V -> InputModeSwitcher.USER_KEYCODE_PASTE
+            else -> null
+        }
+    }
+
     fun setResponseKeyEvent(service: InputView) {
         mService = service
     }
@@ -73,7 +99,15 @@ open class BaseKeyboardView(mContext: Context?) : View(mContext) {
         if (mGestureDetector == null) {
             mGestureDetector = GestureDetector(context, object : SimpleOnGestureListener() {
                 override fun onScroll(downEvent: MotionEvent?, currentEvent: MotionEvent, distanceX: Float, distanceY: Float): Boolean {
-                    if (mLongPressKey && isLX17SecondRowKey()) {
+                    if (mLongPressKey && isEnglishQwertyEditGestureKey()) {
+                        dispatchGestureEvent(downEvent, currentEvent, distanceX, distanceY)
+                        if (gestureHandled) {
+                            mLongPressKey = false
+                            popupComponent.dismissPopup()
+                        } else {
+                            popupComponent.changeFocus(currentEvent.x - downEvent!!.x, currentEvent.y - downEvent.y)
+                        }
+                    } else if (mLongPressKey && isLX17SecondRowKey()) {
                         mLongPressKey = false
                         popupComponent.dismissPopup()
                         dispatchGestureEvent(downEvent, currentEvent, distanceX, distanceY)
@@ -364,15 +398,23 @@ open class BaseKeyboardView(mContext: Context?) : View(mContext) {
                 mAbortKey = true
                 result = true
             }
-            val editKeyCode = if (!shouldToggleLX17English &&
-                InputModeSwitcher.skbLayout == InputModeSwitcher.MASK_SKB_LAYOUT_LX17 &&
-                !gestureHandled && isVertical && distanceY < 0 && relDiffY > symbolSlideUp) {
-                when (mCurrentKey?.code) {
-                    KeyEvent.KEYCODE_C -> InputModeSwitcher.USER_KEYCODE_SELECT_ALL
-                    KeyEvent.KEYCODE_Q -> InputModeSwitcher.USER_KEYCODE_CUT
-                    KeyEvent.KEYCODE_G -> InputModeSwitcher.USER_KEYCODE_COPY
-                    KeyEvent.KEYCODE_F -> InputModeSwitcher.USER_KEYCODE_PASTE
-                    else -> null
+
+            val editKeyCode = if (
+                !shouldToggleLX17English &&
+                    !gestureHandled &&
+                    isVertical &&
+                    distanceY < 0 &&
+                    relDiffY > symbolSlideUp
+            ) {
+                when {
+                    InputModeSwitcher.skbLayout == InputModeSwitcher.MASK_SKB_LAYOUT_LX17 -> when (mCurrentKey?.code) {
+                        KeyEvent.KEYCODE_C -> InputModeSwitcher.USER_KEYCODE_SELECT_ALL
+                        KeyEvent.KEYCODE_Q -> InputModeSwitcher.USER_KEYCODE_CUT
+                        KeyEvent.KEYCODE_G -> InputModeSwitcher.USER_KEYCODE_COPY
+                        KeyEvent.KEYCODE_F -> InputModeSwitcher.USER_KEYCODE_PASTE
+                        else -> null
+                    }
+                    else -> englishQwertyEditGestureKeyCode()
                 }
             } else {
                 null
@@ -386,27 +428,29 @@ open class BaseKeyboardView(mContext: Context?) : View(mContext) {
                 mAbortKey = true
                 mService?.responseKeyEvent(SoftKey(code = editKeyCode))
                 result = true
-            } else if (!gestureHandled && keyLableSmall?.isNotBlank() == true){
-                if (isVertical && distanceY > 0 && relDiffY > symbolSlideUp && ThemeManager.prefs.keyboardSymbol.getValue()){   // 向上滑动
-                lastEventX = currentX
-                lastEventY = currentY
-                lastEventActionIndex = currentEvent.actionIndex
-                mLongPressKey = true
-                removeMessages()
-                mService?.responseLongKeyEvent(Pair(PopupMenuMode.Text, keyLableSmall))
-                result = true
+            } else if (!gestureHandled && keyLableSmall?.isNotBlank() == true) {
+                if (isVertical && distanceY > 0 && relDiffY > symbolSlideUp &&
+                    ThemeManager.prefs.keyboardSymbol.getValue()
+                ) {   // 向上滑动
+                    lastEventX = currentX
+                    lastEventY = currentY
+                    lastEventActionIndex = currentEvent.actionIndex
+                    mLongPressKey = true
+                    removeMessages()
+                    mService?.responseLongKeyEvent(Pair(PopupMenuMode.Text, keyLableSmall))
+                    result = true
+                }
+            } else if (!gestureHandled) {  // 菜单
+                if (isVertical && relDiffY > symbolSlideUp * 2) {   // 向上滑动
+                    lastEventX = currentX
+                    lastEventY = currentY
+                    lastEventActionIndex = currentEvent.actionIndex
+                    mLongPressKey = true
+                    popupComponent.onGestureEvent(distanceY)
+                } else {
+                    if(downEvent != null) popupComponent.changeFocus(currentEvent.x - downEvent.x, currentEvent.y - downEvent.y)
+                }
             }
-        } else if (!gestureHandled) {  // 菜单
-            if (isVertical && relDiffY > symbolSlideUp * 2) {   // 向上滑动
-                lastEventX = currentX
-                lastEventY = currentY
-                lastEventActionIndex = currentEvent.actionIndex
-                mLongPressKey = true
-                popupComponent.onGestureEvent(distanceY)
-            } else {
-                if(downEvent != null) popupComponent.changeFocus(currentEvent.x - downEvent.x, currentEvent.y - downEvent.y)
-            }
-        }
         }
         return result
     }
