@@ -23,6 +23,10 @@ import com.yuyan.imemodule.keyboard.lx17MnemonicPreset
 import com.yuyan.imemodule.prefs.behavior.SkbStyleMode
 import java.util.LinkedList
 
+private const val LX17_PREFIX_WIDTH = 0.110f
+private const val LX17_LAYOUT_RIGHT = 0.9977f
+private val LX17_MAIN_KEY_WIDTH = (LX17_LAYOUT_RIGHT - LX17_PREFIX_WIDTH) / 6f
+
 /**
  * 键盘加载类  包括中文9键  中文26键 英文26键
  */
@@ -205,22 +209,22 @@ class KeyboardLoaderUtil private constructor() {
                 var keyBeans: MutableList<SoftKey> = LinkedList()
                 if(AppPrefs.getInstance().keyboardSetting.lx17WithLeftPrefix.getValue()) {
                     val keys = KeyboardData.layoutLX17CnWithLeftPrefix[skbStyleMode]!!
-                    var lX17Keys = createLX17Keys(keys[0])
+                    var lX17Keys = createLX17Keys(keys[0], LX17_MAIN_KEY_WIDTH)
                     lX17Keys.first().apply {
-                        widthF = 0.1457f
+                        widthF = LX17_PREFIX_WIDTH
                         heightF = 0.75f
                     }
-                    lX17Keys[1].mLeftF = 0.1457f
+                    lX17Keys[1].mLeftF = LX17_PREFIX_WIDTH
                     keyBeans.addAll(lX17Keys)
                     rows.add(keyBeans)
                     keyBeans = LinkedList()
-                    lX17Keys = createLX17Keys(keys[1])
-                    lX17Keys.first().mLeftF = 0.1457f
+                    lX17Keys = createLX17Keys(keys[1], LX17_MAIN_KEY_WIDTH)
+                    lX17Keys.first().mLeftF = LX17_PREFIX_WIDTH
                     keyBeans.addAll(lX17Keys)
                     rows.add(keyBeans)
                     keyBeans = LinkedList()
-                    lX17Keys = createLX17Keys(keys[2])
-                    lX17Keys.first().mLeftF = 0.1457f
+                    lX17Keys = createLX17Keys(keys[2], LX17_MAIN_KEY_WIDTH)
+                    lX17Keys.first().mLeftF = LX17_PREFIX_WIDTH
                     keyBeans.addAll(lX17Keys)
                     rows.add(keyBeans)
                     keyBeans = lastRows(skbValue)
