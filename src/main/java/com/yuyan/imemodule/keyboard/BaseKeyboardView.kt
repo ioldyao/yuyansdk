@@ -190,11 +190,14 @@ open class BaseKeyboardView(mContext: Context?) : View(mContext) {
                     if (currentEvent.pointerCount > 1) return true
                     val session = touchSession
                     if (session != null && session.lifecycle == GestureLifecycle.DISCRETE_CONSUMED) return true
-                    if (mLongPressKey && !isLX17SecondRowKey()) {
+                    val lx17SpaceSwipe = InputModeSwitcher.isChinese &&
+                        InputModeSwitcher.skbLayout == InputModeSwitcher.MASK_SKB_LAYOUT_LX17 &&
+                        mCurrentKey?.code == KeyEvent.KEYCODE_SPACE
+                    if (mLongPressKey && !isLX17SecondRowKey() && !lx17SpaceSwipe) {
                         dispatchGestureEvent(downEvent, currentEvent, distanceX, distanceY)
                         return true
                     }
-                    if (mLongPressKey) {
+                    if (mLongPressKey && (isLX17SecondRowKey() || lx17SpaceSwipe)) {
                         mLongPressKey = false
                         popupComponent.dismissPopup()
                     }

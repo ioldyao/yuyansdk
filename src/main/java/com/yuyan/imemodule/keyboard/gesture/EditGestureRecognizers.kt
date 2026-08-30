@@ -30,8 +30,10 @@ class EnglishEditSwipeRecognizer : GestureRecognizer {
 
 class LX17SpaceUpRecognizer : GestureRecognizer {
     override fun recognize(session: TouchSession, event: MotionEvent, context: GestureContext): GestureAction? {
-        if (context.layout != context.lx17Layout || !context.isChinese) return null
         if (context.keyCode != context.spaceKeyCode) return null
+        val isToggleLayout = (context.layout == context.lx17Layout && context.isChinese) ||
+            (context.layout == context.englishLayout && context.isEnglish)
+        if (!isToggleLayout) return null
         val (dx, dy) = swipeDelta(session, event)
         return GestureAction.ToggleLX17English.takeIf {
             GestureDirection.isUpSwipe(dx, dy, context.symbolThreshold)
