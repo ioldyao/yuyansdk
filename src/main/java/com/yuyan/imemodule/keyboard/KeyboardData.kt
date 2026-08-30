@@ -77,6 +77,27 @@ object KeyboardData {
             arrayOf(31, 45, 35, 34, 48, 67)),
     )
 
+    /** Main key codes used by the LX17 three-row input area. */
+    val lx17MainKeyCodes = setOf(
+        KeyEvent.KEYCODE_H,
+        KeyEvent.KEYCODE_S,
+        KeyEvent.KEYCODE_Z,
+        KeyEvent.KEYCODE_B,
+        KeyEvent.KEYCODE_X,
+        KeyEvent.KEYCODE_M,
+        KeyEvent.KEYCODE_L,
+        KeyEvent.KEYCODE_D,
+        KeyEvent.KEYCODE_Y,
+        KeyEvent.KEYCODE_W,
+        KeyEvent.KEYCODE_J,
+        KeyEvent.KEYCODE_N,
+        KeyEvent.KEYCODE_C,
+        KeyEvent.KEYCODE_Q,
+        KeyEvent.KEYCODE_G,
+        KeyEvent.KEYCODE_F,
+        KeyEvent.KEYCODE_T,
+    )
+
     /** LX17 second-row keys supporting horizontal cursor gestures. */
     val lx17CursorSwipeLeftKeys = setOf(
         KeyEvent.KEYCODE_D,

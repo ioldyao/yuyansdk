@@ -200,6 +200,10 @@ open class TextKeyboard(context: Context?) : BaseKeyboardView(context){
         }
         val keyLabelSmall = softKey.getmKeyLabelSmall()
         val keyMnemonic = softKey.keyMnemonic
+        val hideLx17MainLabel =
+            AppPrefs.getInstance().keyboardSetting.lx17HideMainLabels.getValue() &&
+                InputModeSwitcher.skbLayout == InputModeSwitcher.MASK_SKB_LAYOUT_LX17 &&
+                softKey.code in KeyboardData.lx17MainKeyCodes
         var keyIcon = if(skbStyleMode == SkbStyleMode.Google && softKey.code == KeyEvent.KEYCODE_SPACE) null
             else if(skbStyleMode == SkbStyleMode.Google && softKey.code == InputModeSwitcher.USER_KEYCODE_CURSOR_DIRECTION && !DecodingInfo.isCandidatesEmpty) null
             else softKey.keyIcon
@@ -236,7 +240,7 @@ open class TextKeyboard(context: Context?) : BaseKeyboardView(context){
             keyIcon.setTint(mActiveTheme.keyTextColor)
             keyIcon.setBounds(softKey.mLeft + marginLeft, softKey.mTop + marginTop, softKey.mRight - marginRight, softKey.mBottom - marginBottom)
             keyIcon.draw(canvas)
-        } else if (!TextUtils.isEmpty(keyLabel)) { //Label位于中间
+        } else if (!hideLx17MainLabel && !TextUtils.isEmpty(keyLabel)) { //Label位于中间
             mPaint.color = textColor
             if(keyboardFontBold) mPaint.typeface = Typeface.DEFAULT_BOLD
             mPaint.textSize =  mNormalKeyTextSize.toFloat()
